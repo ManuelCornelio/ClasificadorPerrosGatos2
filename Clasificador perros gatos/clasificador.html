@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clasificador de Perros y Gatos — IA</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --card: #1a1a26;
+      --border: #2a2a3d;
+      --accent-dog: #f5a623;
+      --accent-cat: #7c6af7;
+      --accent-glow-dog: rgba(245,166,35,0.25);
+      --accent-glow-cat: rgba(124,106,247,0.25);
+      --accent-cam: #3ecb7f;
+      --text: #e8e8f0;
+      --muted: #6b6b8a;
+      --font-head: 'Syne', sans-serif;
+      --font-mono: 'Space Mono', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+ 
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(124,106,247,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(124,106,247,0.04) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+    }
+
+    header {
+      width: 100%;
+      max-width: 860px;
+      padding: 56px 24px 32px;
+      text-align: center;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      color: var(--accent-cat);
+      border: 1px solid var(--accent-cat);
+      padding: 4px 12px;
+      border-radius: 2px;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-family: var(--font-head);
+      font-size: clamp(2rem, 6vw, 3.4rem);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+    }
+    h1 .dog { color: var(--accent-dog); }
+    h1 .cat { color: var(--accent-cat); }
+ 
+    .subtitle {
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      line-height: 1.7;
+    }
+ 
+    main {
+      width: 100%;
+      max-width: 860px;
+      padding: 0 24px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      position: relative;
+      animation: fadeIn 0.45s ease both;
+    }
+    .card:nth-child(2) { animation-delay: 0.07s; }
+    .card:nth-child(3) { animation-delay: 0.14s; }
+ 
+    /* ── TABS ── */
+    .tab-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      padding: 10px 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+    }
+
+    .tab-btn:hover { border-color: var(--accent-cat); color: var(--text); }
+    .tab-btn.active { background: var(--accent-cat); border-color: var(--accent-cat); color: #fff; }
+    .tab-btn.cam-tab.active { background: var(--accent-cam); border-color: var(--accent-cam); }
+ 
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+ 
+    /* ── UPLOAD ZONE ── */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 6px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.25s, background 0.25s;
+      position: relative;
+    }
+
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--accent-cat);
+      background: rgba(124,106,247,0.05);
+    }
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .upload-icon { font-size: 38px; margin-bottom: 12px; display: block; }
+    .upload-text-main { font-family: var(--font-head); font-size: 17px; font-weight: 700; margin-bottom: 5px; }
+    .upload-text-sub { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+ 
+    .or-divider {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin: 18px 0;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+    }
+    .or-divider::before, .or-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .url-row { display: flex; gap: 10px; }
+    .url-input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .url-input:focus { border-color: var(--accent-cat); }
+    .url-input::placeholder { color: var(--muted); }
+ 
+    /* ── BUTTONS ── */
+    .btn {
+      background: var(--accent-cat);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    .btn:hover { opacity: 0.88; transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn.green { background: var(--accent-cam); }
+    .btn.red   { background: #e05c5c; }
+    .btn.orange { background: var(--accent-dog); }
+ 
+    /* ── CAMERA PANEL ── */
+    .cam-wrapper {
+      position: relative;
+      width: 100%;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #000;
+      aspect-ratio: 16/9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+ 
+    #cam-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transform: scaleX(-1); /* mirror */
+    }
+
+    .scan-line {
+      position: absolute;
+      left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent-cam), transparent);
+      animation: scanMove 2.5s ease-in-out infinite;
+      display: none;
+      pointer-events: none;
+    }
+    .scan-line.active { display: block; }
+ 
+    @keyframes scanMove {
+      0%   { top: 5%;  opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { top: 95%; opacity: 0; }
+    }
+ 
+    .cam-bracket {
+      position: absolute;
+      width: 28px; height: 28px;
+      border-color: var(--accent-cam);
+      border-style: solid;
+      border-width: 0;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .cam-bracket.active { opacity: 1; }
+    .cam-bracket.tl { top: 12px; left: 12px; border-top-width: 3px; border-left-width: 3px; }
+    .cam-bracket.tr { top: 12px; right: 12px; border-top-width: 3px; border-right-width: 3px; }
+    .cam-bracket.bl { bottom: 12px; left: 12px; border-bottom-width: 3px; border-left-width: 3px; }
+    .cam-bracket.br { bottom: 12px; right: 12px; border-bottom-width: 3px; border-right-width: 3px; }
+ 
+    .cam-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-align: center;
+      padding: 20px;
+    }
+    .cam-placeholder .cam-ico { font-size: 44px; }
+ 
+    #snap-canvas { display: none; }
+ 
+    .cam-controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    .live-badge {
+      position: absolute;
+      top: 10px; left: 10px;
+      background: #e05c5c;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      padding: 3px 8px;
+      border-radius: 2px;
+      display: none;
+      align-items: center;
+      gap: 6px;
+    }
+    .live-badge.active { display: flex; }
+    .live-dot { width: 6px; height: 6px; background: #fff; border-radius: 50%; animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+ 
+    .auto-badge {
+      position: absolute;
+      top: 10px; right: 10px;
+      background: rgba(62,203,127,0.92);
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      padding: 3px 8px;
+      border-radius: 2px;
+      display: none;
+    }
+
+    /* ── RESULTS ── */
+    #preview-section { display: none; }
+ 
+    .preview-container {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+ 
+    #preview-img {
+      width: 200px;
+      height: 200px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+ 
+    .result-panel {
+      flex: 1;
+      min-width: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+ 
+    #status-msg { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+ 
+    .verdict-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 18px;
+      text-align: center;
+      transition: border-color 0.4s, box-shadow 0.4s;
+    }
+    .verdict-box.dog { border-color: var(--accent-dog); box-shadow: 0 0 32px var(--accent-glow-dog); }
+    .verdict-box.cat { border-color: var(--accent-cat); box-shadow: 0 0 32px var(--accent-glow-cat); }
+ 
+    .verdict-emoji { font-size: 44px; display: block; margin-bottom: 5px; }
+    .verdict-label { font-family: var(--font-head); font-size: 22px; font-weight: 800; }
+    .verdict-label.dog { color: var(--accent-dog); }
+    .verdict-label.cat { color: var(--accent-cat); }
+    .verdict-label.unknown { color: var(--muted); }
+    .verdict-conf { font-size: 11px; color: var(--muted); margin-top: 5px; letter-spacing: 0.08em; }
+ 
+    .bars { display: flex; flex-direction: column; gap: 9px; }
+    .bar-row { display: flex; align-items: center; gap: 10px; font-size: 11px; letter-spacing: 0.05em; }
+    .bar-label { width: 60px; text-align: right; color: var(--muted); }
+    .bar-track { flex: 1; height: 6px; background: var(--surface); border-radius: 3px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s cubic-bezier(.4,0,.2,1); width: 0%; }
+    .bar-fill.dog { background: var(--accent-dog); }
+    .bar-fill.cat { background: var(--accent-cat); }
+    .bar-pct { width: 38px; text-align: right; color: var(--text); font-weight: 700; }
+    .auto-badge.active { display: block; }
+
+    #classify-btn {
+      width: 100%;
+      padding: 13px;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      background: linear-gradient(135deg, var(--accent-cat), #5b4fe0);
+    }
+ 
+    .raw-section { margin-top: 20px; }
+    .raw-title { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .raw-list { display: flex; flex-direction: column; gap: 5px; }
+    .raw-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      padding: 5px 10px;
+      border-radius: 3px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    .raw-item .ri-name { color: var(--text); }
+    .raw-item .ri-pct  { color: var(--muted); }
+ 
+    /* ── MODEL BANNER ── */
+    #model-banner {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent-cat);
+      border-radius: 4px;
+      padding: 12px 16px;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+    }
+    #model-banner.ready { border-left-color: #3ecb7f; color: #3ecb7f; }
+    #model-banner.error { border-left-color: #e05c5c; color: #e05c5c; }
+ 
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent-cat);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+ 
+    footer {
+      width: 100%;
+      max-width: 860px;
+      padding: 0 24px 40px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      line-height: 1.8;
+    }
+
+     footer a { color: var(--accent-cat); text-decoration: none; }
+ 
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+ 
+    .note {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 12px;
+      letter-spacing: 0.04em;
+      line-height: 1.6;
+    }
+  </style>
+  </head>
+
+<body>
+
+<header>
+    <div class="tag">Proyecto 3 · Tópicos de IA · ITSS Modelo Dual</div>
+  <h1>Clasificador de<br><span class="dog">Perros</span> y <span class="cat">Gatos</span></h1>
+  <p class="subtitle">Red neuronal · TensorFlow.js · MobileNet v2 · Imagen o Cámara en tiempo real</p>
+</header>
+
+<main>
+  <div id="model-banner">
+    <div class="spinner" id="spinner"></div>
+    <span id="banner-text">Cargando modelo de IA (MobileNet v2)…</span>
+  </div>
+
+  <div class="card">
+    <!-- Tabs -->
+    <div class="tab-bar">
+      <button class="tab-btn active"  id="tab-upload" onclick="switchTab('upload')">📁 Archivo / URL</button>
+      <button class="tab-btn cam-tab" id="tab-cam"    onclick="switchTab('cam')">📷 Cámara Web</button>
+    </div>
+
+    <div class="tab-panel active" id="panel-upload">
+      <div class="upload-zone" id="drop-zone">
+        <input type="file" id="file-input" accept="image/*" />
+        <span class="upload-icon">📂</span>
+        <div class="upload-text-main">Arrastra una imagen aquí</div>
+        <div class="upload-text-sub">o haz clic para seleccionar · JPG, PNG, WEBP, GIF</div>
+      </div>
+      <div class="or-divider">O PEGA UNA URL</div>
+ 
+      <div class="url-row">
+        <input type="text" class="url-input" id="url-input"
+               placeholder="https://ejemplo.com/imagen_perro.jpg" />
+        <button class="btn" id="url-btn">CARGAR</button>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-cam">
+ 
+      <div class="cam-wrapper" id="cam-wrapper">
+        <div class="cam-placeholder" id="cam-placeholder">
+          <span class="cam-ico">📷</span>
+          <span>Presiona <strong>ACTIVAR CÁMARA</strong> para comenzar</span>
+          <span style="font-size:11px;">El navegador pedirá permiso de acceso</span>
+        </div>
+ 
+        <video id="cam-video" autoplay playsinline muted style="display:none;"></video>
+
+        <div class="scan-line" id="scan-line"></div>
+        <div class="cam-bracket tl" id="br-tl"></div>
+        <div class="cam-bracket tr" id="br-tr"></div>
+        <div class="cam-bracket bl" id="br-bl"></div>
+        <div class="cam-bracket br" id="br-br"></div>
+        <div class="live-badge" id="live-badge"><div class="live-dot"></div> EN VIVO</div>
+        <div class="auto-badge" id="auto-badge">AUTO-CLASIFICANDO</div>
+      </div>
+ 
+      <canvas id="snap-canvas"></canvas>
+
+      <div class="cam-controls">
+        <button class="btn green"  id="cam-start-btn" onclick="startCamera()">▶ ACTIVAR CÁMARA</button>
+        <button class="btn red"    id="cam-stop-btn"  onclick="stopCamera()"   style="display:none;">■ DETENER</button>
+        <button class="btn"        id="cam-snap-btn"  onclick="takeSnapshot()" disabled>📸 CAPTURAR Y CLASIFICAR</button>
+        <button class="btn orange" id="cam-auto-btn"  onclick="toggleAuto()"   disabled style="display:none;">⚡ AUTO: OFF</button>
+      </div>
+ 
+      <p class="note">
+        🔒 La imagen <strong>no sale de tu dispositivo</strong>. El modelo corre 100% en tu navegador con TensorFlow.js.
+      </p>
+    </div>
+  </div>
+ 
+  <div class="card" id="preview-section">
+    <div class="preview-container">
+      <img id="preview-img" src="" alt="Imagen analizada" crossorigin="anonymous" />
+ 
+      <div class="result-panel">
+        <div id="status-msg">Listo para clasificar</div>
+ 
+        <div class="verdict-box" id="verdict-box">
+          <span class="verdict-emoji" id="verdict-emoji">🔍</span>
+          <div class="verdict-label"  id="verdict-label">—</div>
+          <div class="verdict-conf"   id="verdict-conf">Carga una imagen o usa la cámara</div>
+        </div>
+
+        <div class="bars">
+          <div class="bar-row">
+            <span class="bar-label">🐶 PERRO</span>
+            <div class="bar-track"><div class="bar-fill dog" id="bar-dog"></div></div>
+            <span class="bar-pct" id="pct-dog">—</span>
+          </div>
+          <div class="bar-row">
+            <span class="bar-label">🐱 GATO</span>
+            <div class="bar-track"><div class="bar-fill cat" id="bar-cat"></div></div>
+            <span class="bar-pct" id="pct-cat">—</span>
+          </div>
+        </div>
+ 
+        <button class="btn" id="classify-btn" disabled>CLASIFICAR IMAGEN</button>
+      </div>
+    </div>
+ 
+    <div class="raw-section" id="raw-section" style="display:none;">
+      <div class="raw-title">Top predicciones del modelo</div>
+      <div class="raw-list" id="raw-list"></div>
+    </div>
+  </div>
+ 
+</main>
+
+<footer>
+  <p>Clasificador de Perros y Gatos · Proyecto 3 · TIA ITSS Modelo Dual</p>
+  <p>Motor: <a href="https://www.tensorflow.org/js" target="_blank">TensorFlow.js</a> ·
+     Modelo: <a href="https://arxiv.org/abs/1801.04381" target="_blank">MobileNet v2</a> ·
+     Entrenado en <a href="https://www.image-net.org/" target="_blank">ImageNet</a></p>
+</footer>
+
+<script>
+// ── DOM ─────────────────────────────────────────────────────────────────────
+const dropZone      = document.getElementById('drop-zone');
+const fileInput     = document.getElementById('file-input');
+const urlInput      = document.getElementById('url-input');
+const urlBtn        = document.getElementById('url-btn');
+const previewSec    = document.getElementById('preview-section');
+const previewImg    = document.getElementById('preview-img');
+const classifyBtn   = document.getElementById('classify-btn');
+const verdictBox    = document.getElementById('verdict-box');
+const verdictEmoji  = document.getElementById('verdict-emoji');
+const verdictLabel  = document.getElementById('verdict-label');
+const verdictConf   = document.getElementById('verdict-conf');
+const barDog        = document.getElementById('bar-dog');
+const barCat        = document.getElementById('bar-cat');
+const pctDog        = document.getElementById('pct-dog');
+const pctCat        = document.getElementById('pct-cat');
+const statusMsg     = document.getElementById('status-msg');
+const rawSection    = document.getElementById('raw-section');
+const rawList       = document.getElementById('raw-list');
+const modelBanner   = document.getElementById('model-banner');
+const bannerText    = document.getElementById('banner-text');
+const spinner       = document.getElementById('spinner');
+
+// camera
+const camVideo       = document.getElementById('cam-video');
+const snapCanvas     = document.getElementById('snap-canvas');
+const camStartBtn    = document.getElementById('cam-start-btn');
+const camStopBtn     = document.getElementById('cam-stop-btn');
+const camSnapBtn     = document.getElementById('cam-snap-btn');
+const camAutoBtn     = document.getElementById('cam-auto-btn');
+const scanLine       = document.getElementById('scan-line');
+const liveBadge      = document.getElementById('live-badge');
+const autoBadge      = document.getElementById('auto-badge');
+const camPlaceholder = document.getElementById('cam-placeholder');
+const brackets       = document.querySelectorAll('.cam-bracket');
+
+// ── State ────────────────────────────────────────────────────────────────────
+let model          = null;
+let cameraStream   = null;
+let autoInterval   = null;
+let autoOn         = false;
+let classifyingNow = false;
+
+// ── Load model ───────────────────────────────────────────────────────────────
+async function loadModel() {
+  try {
+    model = await mobilenet.load({ version: 2, alpha: 1.0 });
+    bannerText.textContent = 'Modelo listo · MobileNet v2 cargado correctamente';
+    modelBanner.classList.add('ready');
+    spinner.style.display = 'none';
+  } catch (e) {
+    bannerText.textContent = 'Error al cargar el modelo. Verifica tu conexión a internet.';
+    modelBanner.classList.add('error');
+    spinner.style.display = 'none';
+  }
+}
+loadModel();
+
+// ── Keywords ─────────────────────────────────────────────────────────────────
+const DOG_KEYWORDS = [
+  'dog','hound','terrier','spaniel','retriever','labrador','poodle',
+  'bulldog','beagle','mastiff','collie','shepherd','dachshund','husky',
+  'malamute','pinscher','schnauzer','dalmatian','greyhound','basenji',
+  'boxer','rottweiler','doberman','chihuahua','spitz','samoyed','pug',
+  'shih','corgi','chow','canine','puppy','mutt','cur','weimaraner'
+];
+const CAT_KEYWORDS = [
+  'cat','kitten','tabby','siamese','persian','abyssinian','bengal',
+  'maine coon','ragdoll','sphynx','british shorthair','burmese',
+  'manx','himalayan','feline','tomcat','kitty','calico','tortoiseshell'
+];
+ 
+function scoreLabel(label) {
+  const l = label.toLowerCase();
+  let dogScore = 0, catScore = 0;
+  for (const kw of DOG_KEYWORDS) if (l.includes(kw)) dogScore++;
+  for (const kw of CAT_KEYWORDS) if (l.includes(kw)) catScore++;
+  return { dogScore, catScore };
+}
+ 
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('tab-upload').classList.toggle('active', tab === 'upload');
+  document.getElementById('tab-cam').classList.toggle('active',    tab === 'cam');
+  document.getElementById('panel-upload').classList.toggle('active', tab === 'upload');
+  document.getElementById('panel-cam').classList.toggle('active',    tab === 'cam');
+}
+ 
+// ── Image (file/url) ─────────────────────────────────────────────────────────
+function loadImageSrc(src) {
+  return new Promise((res, rej) => {
+    previewImg.onload  = () => res();
+    previewImg.onerror = () => rej(new Error('No se pudo cargar la imagen'));
+    previewImg.src = src;
+  });
+}
+ 
+async function setImage(src) {
+  try {
+    await loadImageSrc(src);
+    previewSec.style.display = 'block';
+    resetResults('Imagen cargada · Lista para clasificar');
+    classifyBtn.disabled = !model;
+  } catch (e) {
+    alert('Error al cargar la imagen: ' + e.message);
+  }
+}
+ 
+function resetResults(msg) {
+  verdictBox.className      = 'verdict-box';
+  verdictEmoji.textContent  = '🔍';
+  verdictLabel.textContent  = '—';
+  verdictLabel.className    = 'verdict-label';
+  verdictConf.textContent   = 'Presiona CLASIFICAR para comenzar';
+  barDog.style.width = '0%';
+  barCat.style.width = '0%';
+  pctDog.textContent = '—';
+  pctCat.textContent = '—';
+  rawSection.style.display  = 'none';
+  if (msg) statusMsg.textContent = msg;
+}
+ 
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) setImage(URL.createObjectURL(file));
+});
+ 
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) setImage(URL.createObjectURL(file));
+});
+ 
+urlBtn.addEventListener('click', () => { const s = urlInput.value.trim(); if (s) setImage(s); });
+urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') urlBtn.click(); });
+ 
+// ── Classify (from <img>) ─────────────────────────────────────────────────
+classifyBtn.addEventListener('click', () => runClassify(previewImg));
+ 
+// ── Core classify function ─────────────────────────────────────────────────
+async function runClassify(element) {
+  if (!model || classifyingNow) return;
+  classifyingNow = true;
+  classifyBtn.disabled = true;
+  statusMsg.textContent = 'Clasificando…';
+  verdictEmoji.textContent = '⚙️';
+  verdictLabel.textContent  = 'Analizando';
+  verdictLabel.className    = 'verdict-label';
+ 
+  try {
+    const predictions = await model.classify(element, 10);
+ 
+    let totalDog = 0, totalCat = 0;
+    for (const p of predictions) {
+      const { dogScore, catScore } = scoreLabel(p.className);
+      if (dogScore > 0) totalDog += p.probability * dogScore;
+      if (catScore > 0) totalCat += p.probability * catScore;
+    }
+ 
+    const total = totalDog + totalCat;
+    let normDog = total > 0 ? totalDog / total : 0.5;
+    let normCat = total > 0 ? totalCat / total : 0.5;
+ 
+    let verdict, emoji, cls;
+    if (total === 0) {
+      verdict = 'NO DETECTADO'; emoji = '❓'; cls = 'unknown'; normDog = 0; normCat = 0;
+    } else if (normDog >= normCat) {
+      verdict = 'PERRO'; emoji = '🐶'; cls = 'dog';
+    } else {
+      verdict = 'GATO'; emoji = '🐱'; cls = 'cat';
+    }
+ 
+    const pDog = Math.round(normDog * 100);
+    const pCat = Math.round(normCat * 100);
+    const conf = Math.round(Math.max(totalDog, totalCat) * 100);
+ 
+    verdictBox.className     = 'verdict-box ' + cls;
+    verdictEmoji.textContent = emoji;
+    verdictLabel.textContent = verdict;
+    verdictLabel.className   = 'verdict-label ' + cls;
+    verdictConf.textContent  = total > 0
+      ? `Confianza del modelo: ${conf}%`
+      : 'No se detectaron perros ni gatos en esta imagen';
+ 
+    barDog.style.width = pDog + '%';
+    barCat.style.width = pCat + '%';
+    pctDog.textContent = pDog + '%';
+    pctCat.textContent = pCat + '%';
+ 
+    rawList.innerHTML = '';
+    predictions.slice(0, 6).forEach(p => {
+      const item = document.createElement('div');
+      item.className = 'raw-item';
+      item.innerHTML = `<span class="ri-name">${p.className}</span><span class="ri-pct">${(p.probability*100).toFixed(2)}%</span>`;
+      rawList.appendChild(item);
+    });
+    rawSection.style.display = 'block';
+    statusMsg.textContent = 'Clasificación completada · ' + new Date().toLocaleTimeString();
+ 
+  } catch (err) {
+    verdictEmoji.textContent = '⚠️';
+    verdictLabel.textContent = 'ERROR';
+    verdictLabel.className   = 'verdict-label unknown';
+    verdictConf.textContent  = err.message;
+    statusMsg.textContent    = 'Error durante la clasificación';
+  } finally {
+    classifyBtn.disabled = false;
+    classifyingNow = false;
+  }
+}
+
+// ── CAMERA ──────────────────────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+    });
+    camVideo.srcObject = cameraStream;
+    camVideo.style.display = 'block';
+    camPlaceholder.style.display = 'none';
+ 
+    // activate overlays
+    scanLine.classList.add('active');
+    liveBadge.classList.add('active');
+    brackets.forEach(b => b.classList.add('active'));
+ 
+    // toggle buttons
+    camStartBtn.style.display = 'none';
+    camStopBtn.style.display  = 'inline-block';
+    camSnapBtn.disabled       = false;
+    camAutoBtn.style.display  = 'inline-block';
+    camAutoBtn.disabled       = false;
+ 
+  } catch (err) {
+    let msg = 'No se pudo acceder a la cámara.';
+    if (err.name === 'NotAllowedError')  msg = '❌ Permiso denegado. Habilita el acceso a la cámara en tu navegador y recarga la página.';
+    if (err.name === 'NotFoundError')    msg = '❌ No se encontró ninguna cámara en este dispositivo.';
+    if (err.name === 'NotReadableError') msg = '❌ La cámara está siendo usada por otra aplicación. Ciérrala e intenta de nuevo.';
+    alert(msg);
+  }
+}
+ 
+function stopCamera() {
+  if (autoOn) toggleAuto();
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  camVideo.srcObject = null;
+  camVideo.style.display  = 'none';
+  camPlaceholder.style.display = 'flex';
+ 
+  scanLine.classList.remove('active');
+  liveBadge.classList.remove('active');
+  brackets.forEach(b => b.classList.remove('active'));
+ 
+  camStartBtn.style.display = 'inline-block';
+  camStopBtn.style.display  = 'none';
+  camSnapBtn.disabled       = true;
+  camAutoBtn.style.display  = 'none';
+  camAutoBtn.disabled       = true;
+}
+ 
+// snapshot from video → canvas → previewImg → classify
+function takeSnapshot() {
+  if (!cameraStream) return;
+  const vw = camVideo.videoWidth;
+  const vh = camVideo.videoHeight;
+  if (!vw || !vh) { alert('La cámara aún no tiene video. Espera un momento.'); return; }
+ 
+  snapCanvas.width  = vw;
+  snapCanvas.height = vh;
+  const ctx = snapCanvas.getContext('2d');
+  // mirror to match video
+  ctx.translate(vw, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(camVideo, 0, 0, vw, vh);
+ 
+  previewImg.src = snapCanvas.toDataURL('image/jpeg', 0.92);
+  previewSec.style.display = 'block';
+  resetResults('Foto capturada · Clasificando…');
+  classifyBtn.disabled = true;
+ 
+  // classify the canvas directly (avoids any CORS issue with dataURL on img)
+  runClassify(snapCanvas);
+}
+ 
+// AUTO mode: capture + classify every 2.5 s
+function toggleAuto() {
+  autoOn = !autoOn;
+  if (autoOn) {
+    camAutoBtn.textContent = '⛔ AUTO: ON';
+    autoBadge.classList.add('active');
+    autoInterval = setInterval(() => {
+      if (classifyingNow || !cameraStream) return;
+      const vw = camVideo.videoWidth;
+      const vh = camVideo.videoHeight;
+      if (!vw || !vh) return;
+      snapCanvas.width = vw; snapCanvas.height = vh;
+      const ctx = snapCanvas.getContext('2d');
+      ctx.translate(vw, 0); ctx.scale(-1, 1);
+      ctx.drawImage(camVideo, 0, 0, vw, vh);
+      previewImg.src = snapCanvas.toDataURL('image/jpeg', 0.85);
+      previewSec.style.display = 'block';
+      runClassify(snapCanvas);
+    }, 2500);
+  } else {
+    camAutoBtn.textContent = '⚡ AUTO: OFF';
+    autoBadge.classList.remove('active');
+    clearInterval(autoInterval);
+    autoInterval = null;
+  }
+}
+ 
+window.addEventListener('beforeunload', stopCamera);
+</script>
+</body>
+</html>
